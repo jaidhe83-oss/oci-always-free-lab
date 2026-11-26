@@ -1,7 +1,7 @@
 # helper - run a .sql file (statements separated by a line with only "/") and print results
 import os, sys, time, oracledb
 
-con = oracledb.connect(user="ADMIN", password=os.environ["ADB_ADMIN_PASSWORD"], dsn="enlab26ai_low",
+con = oracledb.connect(user="ADMIN", password=os.environ["ADB_ADMIN_PASSWORD"], dsn=os.environ.get("ADB_NAME", "enlab26ai") + "_low",
                        config_dir="wallet", wallet_location="wallet",
                        wallet_password=os.environ["ADB_WALLET_PASSWORD"])
 cur = con.cursor()

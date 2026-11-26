@@ -1,8 +1,8 @@
 # OCI Always Free Lab: Oracle 26ai for ₹0
 
-Scripts from The Engineer's Notebook series *OCI Always Free Lab*, Episodes 1–3. Every run is create → test → **destroy**, so nothing is left running.
+Scripts from The Engineer's Notebook series *OCI Always Free Lab*, Episodes 1–4. Every run is create → test → **destroy**, so nothing is left running.
 
-> Independent educational material, not affiliated with or endorsed by Oracle. Oracle and Oracle Database are trademarks of Oracle and/or its affiliates. Run at your own risk, and always check that resources are marked **Always Free**.
+> Independent educational material, not affiliated with or endorsed by Oracle. Run at your own risk, and always check that resources are marked **Always Free**.
 
 ## Before you start
 
@@ -66,12 +66,41 @@ Eight notes is a demo, not a benchmark, and the index was not benchmarked.
    - updates the JSON, which changes the rows.
 2. Run `07_etag_conflict.py`. A write that carries a stale ETAG is **rejected** with `ORA-42699`, and nothing is silently overwritten.
 
+## Episode 4: Select AI on a real incident ("what happened at 3 PM?")
+
+Order jobs time out because a batch holds row locks. Monitoring records it, then you ask the database in plain English.
+
+1. `python run_sql.py ep4_app.sql`: orders, app log, `app_worker` (`select ... for update wait 3`), `price_batch` (one 2-minute transaction), `schedule_incident`.
+2. `python run_sql.py ep4_more_evidence.sql`: `LOCK_MONITOR`, the 5-second monitor, `price_batch_fixed` (commit every 5 rows), `schedule_fixed_run`.
+3. `python 08_schedule_incident.py "2026-11-26 15:00"` (IST). App jobs start 5 min before, the batch at the given time.
+4. After the run: `python run_sql.py ep4_collect.sql` (copies ASH + shows the evidence).
+5. Select AI with a free Gemini key (AI Studio, billing disabled):
+   ```
+   $env:GEMINI_API_KEY = "..."; $env:GEMINI_MODEL = "gemini-flash-lite-latest"
+   python 09_select_ai_setup.py
+   python 11_investigate.py 15:00
+   ```
+6. Optional, paid: `$env:ANTHROPIC_API_KEY = "..."; $env:CLAUDE_MODEL = "claude-opus-4-6"; python 12_select_ai_claude.py`, then `$env:AI_PROFILE = "OPS_AI_CLAUDE"; python 11_investigate.py 15:00`.
+7. The fix: `begin schedule_fixed_run(timestamp '... 16:00:00 +05:30'); end;` and compare.
+
+Set `ADB_NAME` if your database is not called `enlab26ai`.
+
+| My result (26 Nov 2026) | |
+|---|---|
+| Incident | 48 timeouts at 15:00–15:01; blocker SID 2821 (PRICE_BATCH), row locks held 119 s |
+| Gemini Flash-Lite (free) | 4 of 7 questions right; wrong root cause (named a victim job, not the blocker) |
+| Claude Opus 4.6 (paid, est. < ₹50) | 4 of 7 right; found the real root cause |
+| Both missed | "who blocked them?" (wrong wait class + self-join to the idle blocker's ASH rows; ASH did record blocker 2821); longest lock holder (`ORDER BY ... DESC` puts NULLs first) |
+| Fix run | 0 timeouts, 0 ASH lock waits |
+
+⚠️ Watch out:
+- **The ADB clock is UTC.** The scripts log India time through `ist_now()`; change `Asia/Kolkata` for your zone.
+- **26ai lock timeout** for `FOR UPDATE WAIT n` came back as **ORA-00054 + ORA-40097**, not ORA-30006. Catch both.
+- **When a Gemini call fails, the Select AI error text contains your API key** (in the URL). Mask logs, and rotate a leaked key.
+- `claude-opus-5-5` returned HTTP 400 through Select AI (likely because it rejects sampling settings such as `temperature`); `claude-opus-4-6` works.
+- **Free Gemini Flash** may answer 503/429, and each failed call can block for minutes. Use Flash-Lite with pauses.
 ## Always finish with
 
 ```
 python 05_destroy.py
 ```
-
-## Never commit
-
-Your `~/.oci` key, the `wallet/` folder, the ONNX model or any passwords. The `.gitignore` here blocks the usual ones.
